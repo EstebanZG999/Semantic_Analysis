@@ -60,6 +60,13 @@ def equal_types(a: Type, b: Type) -> bool:
         return a.dims == b.dims and equal_types(a.elem, b.elem)  # type: ignore[arg-type]
     return a.name == b.name
 
+def make_array(elem: Type, dims: int = 1) -> ArrayType:
+    return ArrayType(name=f"{elem.name}{'[]'*dims}", elem=elem, dims=dims)
+
+def make_fn(params: list[Type], ret: Type) -> FunctionType:
+    return FunctionType(name="function", params=tuple(params), ret=ret)
+
+
 # ----- Reglas de compatibilidad -----
 def can_assign(dst: Type, src: Type) -> bool:
     """
