@@ -1,3 +1,11 @@
 configs
 program/__pycache__
 .venv
+
+program/Compiscript.interp
+program/Compiscript.tokens
+program/CompiscriptLexer.interp
+program/CompiscriptLexer.py
+program/CompiscriptLexer.tokens
+program/CompiscriptListener.py
+program/CompiscriptParser.py
