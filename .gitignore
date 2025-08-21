@@ -9,3 +9,4 @@ program/CompiscriptLexer.py
 program/CompiscriptLexer.tokens
 program/CompiscriptListener.py
 program/CompiscriptParser.py
+program/CompiscriptVisitor.py
