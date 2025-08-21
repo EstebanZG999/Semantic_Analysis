@@ -1,6 +1,7 @@
 configs
 program/__pycache__
 program/semantic/__pycache__
+tests/semantic/__pycache__/
 .venv
 .pytest_cache
 
