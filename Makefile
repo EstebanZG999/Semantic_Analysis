@@ -21,10 +21,44 @@ run: docker-build
 
 # Corre pytest dentro del contenedor
 test: docker-build
-	$(DOCKER_RUN) bash -lc 'python3 -m pip install -q --break-system-packages pytest && PYTHONPATH=/workspace pytest -q'
+	$(DOCKER_RUN) bash -lc '\
+		python3 -m pip install -q --break-system-packages pytest && \
+		export PYTHONPATH=/workspace:/workspace/program && \
+		pytest -q \
+	'
 
 # Limpia artefactos generados por ANTLR en tu árbol local
 clean:
 	@find program -maxdepth 1 -type f \( \
 		-name "Compiscript*.py" -o -name "Compiscript*.tokens" -o -name "Compiscript*.interp" \
 	\) -print -delete
+
+
+.PHONY: test-scopes cov-scopes shell lint-b type-b
+
+# Ejecuta SOLO los tests de scopes (iteración rápida)
+test-scopes: docker-build
+	$(DOCKER_RUN) bash -lc '\
+		python3 -m pip install -q --break-system-packages pytest && \
+		export PYTHONPATH=/workspace:/workspace/program && \
+		pytest -q tests/semantic/test_scopes.py \
+	'
+
+# Reporte de cobertura centrado en src/sema/scopes.py
+cov-scopes: docker-build
+	$(DOCKER_RUN) bash -lc '\
+		python3 -m pip install -q --break-system-packages pytest pytest-cov && \
+		export PYTHONPATH=/workspace:/workspace/program && \
+		pytest -q --cov=semantic/scopes.py --cov-report=term-missing tests/semantic/test_scopes.py \
+	'
+
+# Abre una shell interactiva en el contenedor (para depurar imports/paths)
+shell: docker-build
+	$(DOCKER_RUN) bash
+
+# Lint rápido del módulo de scopes (opcional)
+lint-b: docker-build
+	$(DOCKER_RUN) bash -lc '\
+		python3 -m pip install -q --break-system-packages ruff && \
+		ruff check program/semantic/scopes.py \
+	'
