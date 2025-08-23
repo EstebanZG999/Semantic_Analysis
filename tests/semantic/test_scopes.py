@@ -1,6 +1,6 @@
 import pytest
 
-from semantic.scopes import Scope
+from semantic.scopes import Scope, GlobalScope, FunctionScope, ClassScope
 from semantic.symbols import VarSymbol
 import semantic.typesys as T
 
@@ -36,3 +36,32 @@ def test_cascading_resolution_parent_visible_in_child():
     b = Scope('block', parent=g)
     assert g.define(VarSymbol('z', Int)) is True
     assert b.resolve('z') is not None
+
+def test_function_scope_basic():
+    g = GlobalScope()
+    f = FunctionScope(g, return_type=T.VOID, name="f")
+    assert f.define(VarSymbol("x", Int)) is True
+    assert f.resolve("x") is not None
+    assert g.resolve("x") is None
+    # shadowing permitido
+    assert g.define(VarSymbol("x", Int)) is True
+    assert f.resolve("x") is not g.resolve("x")
+
+def test_class_scope_basic():
+    g = GlobalScope()
+    c = ClassScope(g, class_name="C")
+    assert c.define(VarSymbol("a", Int)) is True
+    assert c.resolve("a") is not None
+    assert g.resolve("a") is None
+
+def test_redeclaration_rules_per_scope():
+    g = GlobalScope()
+    assert g.define(VarSymbol("y", Int)) is True
+    assert g.define(VarSymbol("y", Int)) is False
+
+def test_no_cross_resolution_between_siblings():
+    g = Scope('global')
+    a = Scope('block', parent=g)
+    b = Scope('block', parent=g)
+    assert a.define(VarSymbol('x', Int)) is True
+    assert b.resolve('x') is None
