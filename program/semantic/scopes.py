@@ -31,13 +31,36 @@ class Scope:
             s = s.parent
         return None
 
-    # Utilidades opcionales:
+    # Utilidades
     def __contains__(self, name: str) -> bool:
         return name in self.symbols
 
     def items(self) -> Iterable[tuple[str, Symbol]]:
         return self.symbols.items()
 
+# Subclases útiles
+
+class GlobalScope(Scope):
+    def __init__(self) -> None:
+        super().__init__('global', None)
+
+class BlockScope(Scope):
+    def __init__(self, parent: Scope) -> None:
+        super().__init__('block', parent)
+
+class FunctionScope(Scope):
+    def __init__(self, parent: Scope, return_type, name: str | None = None) -> None:
+        super().__init__('function', parent)
+        self.func_name = name
+        self.return_type = return_type
+        self.has_return = False  # Persona C lo pondrá en True al ver un 'return'
+
+class ClassScope(Scope):
+    def __init__(self, parent: Scope, class_name: str) -> None:
+        super().__init__('class', parent)
+        self.class_name = class_name
+
+# Pila de scopes
 
 class ScopeStack:
     """
@@ -54,16 +77,36 @@ class ScopeStack:
         return self.stack[-1]
 
     def push(self, kind: str) -> Scope:
+        """Crea un hijo del tipo solicitado ('global'|'block'|'function'|'class'|otro)."""
         parent = self.stack[-1] if self.stack else None
-        new_scope = Scope(kind=kind, parent=parent)
-        self.stack.append(new_scope)
-        return new_scope
+        if kind == 'global':
+            s = GlobalScope()
+        elif kind == 'block':
+            s = BlockScope(parent)  # type: ignore[arg-type]
+        elif kind == 'function':
+            s = FunctionScope(parent, return_type=None)  # type: ignore[arg-type]
+        elif kind == 'class':
+            s = ClassScope(parent, class_name="<anon>")  # type: ignore[arg-type]
+        else:
+            s = Scope(kind, parent)
+        self.stack.append(s)
+        return s
 
     def push_child(self, child: Scope) -> Scope:
         """Permite reutilizar un Scope preconstruido como hijo del actual."""
         child.parent = self.current if self.stack else None
         self.stack.append(child)
         return child
+
+    def push_function(self, return_type, name: str | None = None) -> FunctionScope:
+        fs = FunctionScope(self.current, return_type, name)
+        self.stack.append(fs)
+        return fs
+
+    def push_class(self, class_name: str) -> ClassScope:
+        cs = ClassScope(self.current, class_name)
+        self.stack.append(cs)
+        return cs
 
     def pop(self) -> Scope:
         if not self.stack:
