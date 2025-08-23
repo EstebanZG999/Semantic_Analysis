@@ -36,12 +36,20 @@ clean:
 
 .PHONY: test-scopes cov-scopes shell lint-b type-b
 
-# Ejecuta SOLO los tests de scopes (iteración rápida)
+# Ejecuta SOLO los tests de scopes
 test-scopes: docker-build
 	$(DOCKER_RUN) bash -lc '\
 		python3 -m pip install -q --break-system-packages pytest && \
 		export PYTHONPATH=/workspace:/workspace/program && \
 		pytest -q tests/semantic/test_scopes.py \
+	'
+
+# Ejecuta SOLO los tests de stack (ScopeStack)
+test-scopes-stack: docker-build
+	$(DOCKER_RUN) bash -lc '\
+		python3 -m pip install -q --break-system-packages pytest && \
+		export PYTHONPATH=/workspace:/workspace/program && \
+		pytest -q tests/semantic/test_scopes_stack.py \
 	'
 
 # Reporte de cobertura centrado en src/sema/scopes.py
@@ -56,7 +64,7 @@ cov-scopes: docker-build
 shell: docker-build
 	$(DOCKER_RUN) bash
 
-# Lint rápido del módulo de scopes (opcional)
+# Lint rápido del módulo de scopes
 lint-b: docker-build
 	$(DOCKER_RUN) bash -lc '\
 		python3 -m pip install -q --break-system-packages ruff && \
