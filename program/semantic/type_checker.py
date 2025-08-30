@@ -59,16 +59,18 @@ class TypeChecker(CompiscriptVisitor):
         sym = VarSymbol(name, vtype, is_const=False, is_initialized=False)
 
         if ctx.initializer():
-            init_t = self.visit(ctx.initializer().expression())
+            init_t = self.visit(ctx.initializer().expression()) or VOID
             print(f"[DEBUG] Inicializador de '{name}' tiene tipo: {init_t}")
-            print(f"[DEBUG] Comparando vtype={vtype}, init_t={init_t}")  
+            print(f"[DEBUG] Comparando vtype={vtype}, init_t={init_t}")
             if not can_assign(vtype, init_t):
                 self.reporter.report(ctx.start.line, ctx.start.column, "E_ASSIGN",
                                     f"No se puede asignar {init_t} a {vtype}")
-            sym.is_initialized = True
+            else:
+                sym.is_initialized = True   
 
         self.define_symbol(sym)
         return None
+
 
 
 
@@ -185,93 +187,62 @@ class TypeChecker(CompiscriptVisitor):
         return VOID
 
     def visitAdditiveExpr(self, ctx: CompiscriptParser.AdditiveExprContext):
-        left_t = self.visit(ctx.multiplicativeExpr(0)) or VOID
+        t = self.visit(ctx.multiplicativeExpr(0)) or VOID
         for m in ctx.multiplicativeExpr()[1:]:
             right_t = self.visit(m) or VOID
-            print(f"[DEBUG] visitAdditiveExpr: {left_t} + {right_t}")
-            result = arithmetic_type(left_t, right_t)
-            if result is None:
-                self.reporter.report(ctx.start.line, ctx.start.column, "E_ADD",
-                                    f"No se puede aplicar '+' o '-' entre {left_t} y {right_t}")
-                left_t = VOID
-            else:
-                left_t = result
-        return left_t
+            t = arithmetic_type(t, right_t) or VOID
+        return t
 
     def visitMultiplicativeExpr(self, ctx: CompiscriptParser.MultiplicativeExprContext):
-        left_t = self.visit(ctx.unaryExpr(0)) or VOID
+        t = self.visit(ctx.unaryExpr(0)) or VOID
         for u in ctx.unaryExpr()[1:]:
             right_t = self.visit(u) or VOID
-            print(f"[DEBUG] visitMultiplicativeExpr: {left_t} * {right_t}")
-            result = arithmetic_type(left_t, right_t)
-            if result is None:
-                self.reporter.report(ctx.start.line, ctx.start.column, "E_MUL",
-                                    f"No se puede aplicar '*', '/' o '%' entre {left_t} y {right_t}")
-                left_t = VOID
-            else:
-                left_t = result
-        return left_t
+            t = arithmetic_type(t, right_t) or VOID
+        return t
+
 
     def visitRelationalExpr(self, ctx: CompiscriptParser.RelationalExprContext):
-        left_t = self.visit(ctx.additiveExpr(0)) or VOID
-        for a in ctx.additiveExpr()[1:]:
-            right_t = self.visit(a) or VOID
-            print(f"[DEBUG] visitRelationalExpr: {left_t} ? {right_t}")
-            result = comparison_type(left_t, right_t)
-            if result is None:
-                self.reporter.report(ctx.start.line, ctx.start.column, "E_REL",
-                                    f"No se puede comparar {left_t} con {right_t}")
-                left_t = VOID
-            else:
-                left_t = result
-        return left_t
+            if ctx.additiveExpr():
+                t = self.visit(ctx.additiveExpr(0)) or VOID
+                for a in ctx.additiveExpr()[1:]:
+                    right_t = self.visit(a) or VOID
+                    t = comparison_type(t, right_t) or VOID
+                return t
+            return VOID
+
 
     def visitEqualityExpr(self, ctx: CompiscriptParser.EqualityExprContext):
-        left_t = self.visit(ctx.relationalExpr(0)) or VOID
-        for r in ctx.relationalExpr()[1:]:
-            right_t = self.visit(r) or VOID
-            print(f"[DEBUG] visitEqualityExpr: {left_t} == {right_t}")
-            result = comparison_type(left_t, right_t)
-            if result is None:
-                self.reporter.report(ctx.start.line, ctx.start.column, "E_EQ",
-                                    f"No se puede aplicar '==' o '!=' entre {left_t} y {right_t}")
-                left_t = VOID
-            else:
-                left_t = result
-        return left_t
+            if ctx.relationalExpr():
+                t = self.visit(ctx.relationalExpr(0)) or VOID
+                for r in ctx.relationalExpr()[1:]:
+                    right_t = self.visit(r) or VOID
+                    t = comparison_type(t, right_t) or VOID
+                return t
+            return VOID
 
     def visitLogicalAndExpr(self, ctx: CompiscriptParser.LogicalAndExprContext):
-        left_t = self.visit(ctx.equalityExpr(0)) or VOID
-        for e in ctx.equalityExpr()[1:]:
-            right_t = self.visit(e) or VOID
-            print(f"[DEBUG] visitLogicalAndExpr: {left_t} && {right_t}")
-            result = logical_type(left_t, right_t)
-            if result is None:
-                self.reporter.report(ctx.start.line, ctx.start.column, "E_AND",
-                                    f"Operador '&&' requiere boolean, no {left_t} y {right_t}")
-                left_t = VOID
-            else:
-                left_t = result
-        return left_t
+            if ctx.equalityExpr():
+                t = self.visit(ctx.equalityExpr(0)) or VOID
+                for e in ctx.equalityExpr()[1:]:
+                    right_t = self.visit(e) or VOID
+                    t = logical_type(t, right_t) or VOID
+                return t
+            return VOID
 
     def visitLogicalOrExpr(self, ctx: CompiscriptParser.LogicalOrExprContext):
-        left_t = self.visit(ctx.logicalAndExpr(0)) or VOID
-        for e in ctx.logicalAndExpr()[1:]:
-            right_t = self.visit(e) or VOID
-            print(f"[DEBUG] visitLogicalOrExpr: {left_t} || {right_t}")
-            result = logical_type(left_t, right_t)
-            if result is None:
-                self.reporter.report(ctx.start.line, ctx.start.column, "E_OR",
-                                    f"Operador '||' requiere boolean, no {left_t} y {right_t}")
-                left_t = VOID
-            else:
-                left_t = result
-        return left_t
-
-
+            if ctx.logicalAndExpr():
+                t = self.visit(ctx.logicalAndExpr(0)) or VOID
+                for e in ctx.logicalAndExpr()[1:]:
+                    right_t = self.visit(e) or VOID
+                    t = logical_type(t, right_t) or VOID
+                return t
+            return VOID
 
 
     def visitCallExpr(self, ctx: CompiscriptParser.CallExprContext):
+        print(f"[DEBUG] visitCallExpr detectado: {ctx.getText()}")
+
+        
         args = []
         if ctx.arguments():
             for e in ctx.arguments().expression():
@@ -279,122 +250,135 @@ class TypeChecker(CompiscriptVisitor):
                 args.append(arg_t)
         print(f"[DEBUG] Argumentos en llamada: {args}")
 
-        lhs = ctx.parentCtx
-        if not isinstance(lhs, CompiscriptParser.LeftHandSideContext):
-            self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
-                                "Contexto inválido en llamada")
+        lhs_ctx = ctx.parentCtx
+        if not isinstance(lhs_ctx, CompiscriptParser.LeftHandSideContext):
+            self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL", "Contexto inválido en llamada")
             return VOID
 
         
-        if lhs.primaryAtom() and lhs.primaryAtom().Identifier():
-            func_name = lhs.primaryAtom().Identifier().getText()
-            print(f"[DEBUG] Llamada a función global '{func_name}' con {len(args)} argumentos")
+        if lhs_ctx.primaryAtom() and lhs_ctx.primaryAtom().Identifier():
+            base_name = lhs_ctx.primaryAtom().Identifier().getText()
+        else:
+            self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL", "Llamada sin identificador base")
+            return VOID
 
-            sym = self.resolve_symbol(func_name, ctx.start.line, ctx.start.column)
-            print(f"[DEBUG] Resolviendo llamada a {func_name}, sym={sym}, sym.type={getattr(sym, 'type', None)}")
-
+        
+        if len(lhs_ctx.suffixOp()) == 1 and lhs_ctx.suffixOp(0) == ctx:
+            print(f"[DEBUG] Llamada a función global '{base_name}' con {len(args)} argumentos")
+            sym = self.resolve_symbol(base_name, ctx.start.line, ctx.start.column)
             if not sym or not isinstance(sym, FuncSymbol):
                 self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
-                                    f"{func_name} no es una función")
+                                    f"{base_name} no es una función")
                 return VOID
 
             
             if len(args) != len(sym.params):
                 self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
-                                    f"Número incorrecto de argumentos en llamada a {func_name}")
+                                    f"Número incorrecto de argumentos en {base_name}")
             else:
                 for i, (arg_t, param) in enumerate(zip(args, sym.params)):
                     if not can_assign(param.type, arg_t):
                         self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
-                                            f"Argumento {i} incompatible: {arg_t} esperado {param.type}")
+                                            f"Argumento {i} incompatible: {arg_t}, se esperaba {param.type}")
 
-            
-            if isinstance(sym.type, FunctionType):
-                print(f"[DEBUG] Retornando type {sym.type.ret} de función {func_name}")
-                return sym.type.ret
-            return sym.type
+            return sym.type.ret if isinstance(sym.type, FunctionType) else sym.type
 
         
-        if lhs.primaryAtom() and lhs.suffixOp():
-            obj_name = lhs.primaryAtom().getText()
-            obj_sym = self.resolve_symbol(obj_name, ctx.start.line, ctx.start.column)
-            if obj_sym and isinstance(obj_sym.type, Type):
-                class_name = obj_sym.type.name
-                class_sym = self.resolve_symbol(class_name, ctx.start.line, ctx.start.column)
-                if isinstance(class_sym, ClassSymbol):
-                    method_name = lhs.suffixOp()[-1].Identifier().getText()
-                    print(f"[DEBUG] Llamada a método '{method_name}' en objeto '{obj_name}' de clase {class_name}")
+        if len(lhs_ctx.suffixOp()) >= 2 and lhs_ctx.suffixOp()[-1] == ctx:
+            prev_suffix = lhs_ctx.suffixOp()[-2]
+            if isinstance(prev_suffix, CompiscriptParser.PropertyAccessExprContext):
+                method_name = prev_suffix.Identifier().getText()
+                obj_name = lhs_ctx.primaryAtom().getText()
+                obj_sym = self.resolve_symbol(obj_name, ctx.start.line, ctx.start.column)
 
+                if not obj_sym or not isinstance(obj_sym.type, Type):
+                    self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
+                                        f"{obj_name} no es un objeto válido")
+                    return VOID
+
+                class_sym = self.resolve_symbol(obj_sym.type.name, ctx.start.line, ctx.start.column)
+                if not isinstance(class_sym, ClassSymbol):
+                    self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
+                                        f"{obj_sym.type.name} no es una clase válida")
+                    return VOID
+
+                print(f"[DEBUG] Llamada a método '{method_name}' en objeto '{obj_name}' de clase {class_sym.name}")
+
+                
+                method = None
+                while isinstance(class_sym, ClassSymbol):
                     method = class_sym.methods.get(method_name)
-                    if not method:
-                        self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
-                                            f"Método {method_name} no definido en {class_name}")
-                        return VOID
-
-                    if len(args) != len(method.params):
-                        self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
-                                            f"Número incorrecto de argumentos en {class_name}.{method_name}")
+                    if method:
+                        break
+                    if hasattr(class_sym, "base") and class_sym.base:
+                        class_sym = self.resolve_symbol(class_sym.base, ctx.start.line, ctx.start.column)
                     else:
-                        for i, (arg_t, param) in enumerate(zip(args, method.params)):
-                            if not can_assign(param.type, arg_t):
-                                self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
-                                                    f"Argumento {i} incompatible en {class_name}.{method_name}: {arg_t} esperado {param.type}")
+                        class_sym = None
 
-                    if isinstance(method.type, FunctionType):
-                        print(f"[DEBUG] Retornando type {method.type.ret} de método {method_name}")
-                        return method.type.ret
-                    return method.type
+                if not method:
+                    self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
+                                        f"Método {method_name} no definido en {obj_sym.type.name}")
+                    return VOID
+
+                
+                if len(args) != len(method.params):
+                    self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
+                                        f"Número incorrecto de argumentos en {obj_sym.type.name}.{method_name}")
+                else:
+                    for i, (arg_t, param) in enumerate(zip(args, method.params)):
+                        if not can_assign(param.type, arg_t):
+                            self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
+                                                f"Argumento {i} incompatible en {obj_sym.type.name}.{method_name}: {arg_t} esperado {param.type}")
+
+                
+                return method.type.ret if isinstance(method.type, FunctionType) else method.type
 
         
         self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
-                            "Llamada a algo que no es función ni método")
+                            f"Llamada inválida en {base_name}")
         return VOID
-
-    
 
 
 
 
     def visitIdentifierExpr(self, ctx: CompiscriptParser.IdentifierExprContext):
         name = ctx.Identifier().getText()
-        if name == "integer":
-            return INTEGER
-        if name == "string":
-            return STRING
-        if name == "boolean":
-            return BOOLEAN
-        if name == "void":
-            return VOID
+
+        
+        if name == "integer": return INTEGER
+        if name == "string": return STRING
+        if name == "boolean": return BOOLEAN
+        if name == "void": return VOID
 
         sym = self.resolve_symbol(name, ctx.start.line, ctx.start.column)
         if sym:
             print(f"[DEBUG] Identificador '{name}' resuelto con tipo {sym.type}")
-            if isinstance(sym, VarSymbol):
-                return sym.type
-            if isinstance(sym, ParamSymbol):
+
+            if isinstance(sym, (VarSymbol, ParamSymbol)):
                 return sym.type
             if isinstance(sym, FuncSymbol):
-                return sym.type
+                return sym.type  
             if isinstance(sym, ClassSymbol):
                 return sym.type
+
         return VOID
 
 
 
-
-
-
-
     
-    
-    
+        
     def visitClassDeclaration(self, ctx: CompiscriptParser.ClassDeclarationContext):
         name = ctx.Identifier(0).getText()
         csym = ClassSymbol(name, type=Type(name))
         csym.fields = {}
         csym.methods = {}
+        if ctx.Identifier(1):
+            csym.base = ctx.Identifier(1).getText()
+        else:
+            csym.base = None
+        
         self.define_symbol(csym)
-        print(f"[DEBUG] Declarando clase '{name}'")
+        print(f"[DEBUG] Declarando clase '{name}' (base={csym.base})")
 
         prev = self._current_class
         self._current_class = name
@@ -402,21 +386,24 @@ class TypeChecker(CompiscriptVisitor):
 
         for member in ctx.classMember():
             if member.functionDeclaration():
-                
                 fname = member.functionDeclaration().Identifier().getText()
-                ftype = self.visit(member.functionDeclaration().type_()) if member.functionDeclaration().type_() else VOID
+                ret_type = self.visit(member.functionDeclaration().type_()) if member.functionDeclaration().type_() else VOID
+                
                 params = []
                 if member.functionDeclaration().parameters():
                     for i, p in enumerate(member.functionDeclaration().parameters().parameter()):
                         pname = p.Identifier().getText()
                         ptype = self.visit(p.type_()) if p.type_() else VOID
                         params.append(ParamSymbol(pname, ptype, i))
-                fsym = FuncSymbol(fname, type=ftype, params=tuple(params))
+                
+                
+                func_type = make_fn([p.type for p in params], ret_type)
+                fsym = FuncSymbol(fname, type=func_type, params=tuple(params))
                 csym.methods[fname] = fsym
-                print(f"[DEBUG] Método '{fname}' registrado en clase '{name}' con retorno {ftype}")
+                print(f"[DEBUG] Método '{fname}' registrado en clase '{name}' con type={func_type}")
 
                 
-                self.scopes.push_function(ftype, fname)
+                self.scopes.push_function(ret_type, fname)
                 for psym in params:
                     self.define_symbol(psym)
                 self.visit(member.functionDeclaration().block())
@@ -504,30 +491,38 @@ class TypeChecker(CompiscriptVisitor):
         sym = self.resolve_symbol(class_name, ctx.start.line, ctx.start.column)
         if not sym or not isinstance(sym, ClassSymbol):
             self.reporter.report(ctx.start.line, ctx.start.column, "E_NEW",
-                                 f"Clase no definida: {class_name}")
+                                f"Clase no definida: {class_name}")
             return VOID
 
         
         args = []
         if ctx.arguments():
             for e in ctx.arguments().expression():
-                args.append(self.visit(e))
+                args.append(self.visit(e) or VOID)
 
-        ctor = sym.methods.get("constructor") if hasattr(sym, "methods") else None
-        if ctor and isinstance(ctor, FuncSymbol):
+        
+        ctor = sym.methods.get("constructor")
+        if not ctor and hasattr(sym, "base") and sym.base:
+            base_sym = self.resolve_symbol(sym.base, ctx.start.line, ctx.start.column)
+            if isinstance(base_sym, ClassSymbol):
+                ctor = base_sym.methods.get("constructor")
+
+        if ctor and isinstance(ctor.type, FunctionType):
+            
             if len(args) != len(ctor.params):
                 self.reporter.report(ctx.start.line, ctx.start.column, "E_NEW",
-                                     f"Número incorrecto de argumentos al construir {class_name}")
+                                    f"Número incorrecto de argumentos al construir {class_name}")
             else:
                 for i, (arg_t, param) in enumerate(zip(args, ctor.params)):
                     if not can_assign(param.type, arg_t):
                         self.reporter.report(ctx.start.line, ctx.start.column, "E_NEW",
-                                             f"Argumento {i} incompatible en constructor de {class_name}")
+                                            f"Argumento {i} incompatible en constructor de {class_name}: {arg_t}, se esperaba {param.type}")
         else:
             if args:
                 self.reporter.report(ctx.start.line, ctx.start.column, "E_NEW",
-                                     f"Clase {class_name} no tiene constructor que reciba argumentos")
+                                    f"Clase {class_name} no tiene constructor que reciba argumentos")
 
+        
         return Type(class_name)
 
 
@@ -709,46 +704,106 @@ class TypeChecker(CompiscriptVisitor):
 
 
     def visitUnaryExpr(self, ctx: CompiscriptParser.UnaryExprContext):
-        if ctx.getChildCount() == 2:  
-            op = ctx.getChild(0).getText()
-            t = self.visit(ctx.unaryExpr())
-            if op == "-" and t != INTEGER:
-                self.reporter.report(ctx.start.line, ctx.start.column, "E_UNARY",
-                                    f"Operador '-' solo válido para integer, no {t}")
-                return VOID
-            if op == "!" and t != BOOLEAN:
-                self.reporter.report(ctx.start.line, ctx.start.column, "E_UNARY",
-                                    f"Operador '!' solo válido para boolean, no {t}")
-                return VOID
-            return t
-        else:
-            return self.visit(ctx.primaryExpr())
+            if ctx.getChildCount() == 2:  
+                op = ctx.getChild(0).getText()
+                t = self.visit(ctx.unaryExpr()) or VOID
+                if op == "-" and t != INTEGER:
+                    self.reporter.report(ctx.start.line, ctx.start.column, "E_UNARY",
+                                        f"Operador '-' solo válido para integer, no {t}")
+                    return VOID
+                if op == "!" and t != BOOLEAN:
+                    self.reporter.report(ctx.start.line, ctx.start.column, "E_UNARY",
+                                        f"Operador '!' solo válido para boolean, no {t}")
+                    return VOID
+                return t
+            else:
+                return self.visit(ctx.primaryExpr()) or VOID
 
     def visitPropertyAccessExpr(self, ctx: CompiscriptParser.PropertyAccessExprContext):
-        
         lhs_ctx = ctx.parentCtx
-        if not isinstance(lhs_ctx, CompiscriptParser.LeftHandSideContext):
-            print("[DEBUG] PropertyAccessExpr sin LeftHandSide padre válido")
-            return VOID
-
-        
-        obj_ctx = lhs_ctx.primaryAtom()
-        obj_t = self.visit(obj_ctx) or VOID
+        obj_t = VOID
+        if isinstance(lhs_ctx, CompiscriptParser.LeftHandSideContext):
+            if lhs_ctx.primaryAtom():
+                obj_t = self.visit(lhs_ctx.primaryAtom()) or VOID
 
         prop_name = ctx.Identifier().getText()
         print(f"[DEBUG] Acceso a propiedad '{prop_name}' en {obj_t}")
 
         if isinstance(obj_t, Type):
             class_sym = self.resolve_symbol(obj_t.name, ctx.start.line, ctx.start.column)
-            if isinstance(class_sym, ClassSymbol):
-                
+            while isinstance(class_sym, ClassSymbol):   
                 if prop_name in class_sym.fields:
                     return class_sym.fields[prop_name].type
-                
                 if prop_name in class_sym.methods:
-                    method = class_sym.methods[prop_name]
-                    return method.type if method else VOID
+                    return class_sym.methods[prop_name].type
+                if hasattr(class_sym, "base") and class_sym.base:
+                    class_sym = self.resolve_symbol(class_sym.base, ctx.start.line, ctx.start.column)
+                else:
+                    break
         return VOID
+    def visitLeftHandSide(self, ctx: CompiscriptParser.LeftHandSideContext):
+        
+        t = self.visit(ctx.primaryAtom()) or VOID
+        print(f"[DEBUG] visitLeftHandSide base={ctx.primaryAtom().getText()} → {t}")
+
+        
+        for suffix in ctx.suffixOp():
+            res = self.visit(suffix)
+            if isinstance(suffix, CompiscriptParser.CallExprContext):
+                print(f"[DEBUG] visitLeftHandSide aplica CallExpr → {res}")
+                t = res
+            elif isinstance(suffix, CompiscriptParser.IndexExprContext):
+                print(f"[DEBUG] visitLeftHandSide aplica IndexExpr → {res}")
+                t = res
+            elif isinstance(suffix, CompiscriptParser.PropertyAccessExprContext):
+                print(f"[DEBUG] visitLeftHandSide aplica PropertyAccessExpr → {res}")
+                t = res
+        return t
 
 
 
+    
+    
+    
+
+    def visitExpression(self, ctx: CompiscriptParser.ExpressionContext):
+        return self.visit(ctx.assignmentExpr()) or VOID
+
+    def visitAssignmentExpr(self, ctx: CompiscriptParser.AssignmentExprContext):
+        if ctx.getChildCount() == 3 and ctx.getChild(1).getText() == "=":
+            
+            lhs_t = self.visit(ctx.leftHandSide()) or VOID
+            rhs_t = self.visit(ctx.assignmentExpr()) or VOID
+            if not can_assign(lhs_t, rhs_t):
+                self.reporter.report(ctx.start.line, ctx.start.column, "E_ASSIGN",
+                                     f"No se puede asignar {rhs_t} a {lhs_t}")
+            return lhs_t
+        else:
+            
+            return self.visit(ctx.conditionalExpr()) or VOID
+
+    def visitConditionalExpr(self, ctx: CompiscriptParser.ConditionalExprContext):
+        if ctx.getChildCount() == 5:  
+            cond_t = self.visit(ctx.logicalOrExpr()) or VOID
+            if cond_t != BOOLEAN:
+                self.reporter.report(ctx.start.line, ctx.start.column, "E_TERNARY",
+                                     f"Condición de operador ternario debe ser boolean, no {cond_t}")
+            then_t = self.visit(ctx.expression(0)) or VOID
+            else_t = self.visit(ctx.expression(1)) or VOID
+            if can_assign(then_t, else_t):
+                return then_t
+            if can_assign(else_t, then_t):
+                return else_t
+            return VOID
+        else:
+            return self.visit(ctx.logicalOrExpr()) or VOID
+
+
+    def visitPrimaryExpr(self, ctx: CompiscriptParser.PrimaryExprContext):
+        if ctx.literalExpr():
+            return self.visit(ctx.literalExpr()) or VOID
+        if ctx.leftHandSide():
+            return self.visit(ctx.leftHandSide()) or VOID
+        if ctx.expression():
+            return self.visit(ctx.expression()) or VOID
+        return VOID
