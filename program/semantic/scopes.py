@@ -115,3 +115,8 @@ class ScopeStack:
 
     def depth(self) -> int:
         return len(self.stack)
+    def inside(self, kind: str) -> bool:
+        for s in reversed(self.stack):
+            if s.kind == kind:
+                return True
+        return False

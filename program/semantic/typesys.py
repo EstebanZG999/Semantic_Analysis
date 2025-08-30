@@ -2,14 +2,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-# ----- Nombres canónicos de tipos primitivos -----
+
 T_INTEGER = "integer"
 T_STRING  = "string"
 T_BOOLEAN = "boolean"
 T_NULL    = "null"
 T_VOID    = "void"
 
-# ----- Clases de tipos -----
+
 @dataclass(frozen=True)
 class Type:
     name: str
@@ -36,29 +36,38 @@ class FunctionType(Type):
 
 @dataclass(frozen=True)
 class ClassType(Type):
-    # name == nombre de clase
+    
     pass
 
-# ----- Singletons útiles -----
+
 INTEGER = Type(T_INTEGER)
 STRING  = Type(T_STRING)
 BOOLEAN = Type(T_BOOLEAN)
 NULL    = Type(T_NULL)
 VOID    = Type(T_VOID)
 
-# ----- Predicados y helpers -----
+
 def is_numeric(t: Type) -> bool:
-    # float, extiende aquí.
+    
     return t.name == T_INTEGER
 
 def is_boolean(t: Type) -> bool: return t.name == T_BOOLEAN
 def is_string(t: Type) -> bool:  return t.name == T_STRING
 
-def equal_types(a: Type, b: Type) -> bool:
-    # Igualdad estructural 
+def equal_types(a: Optional[Type], b: Optional[Type]) -> bool:
+    
+    if a is None or b is None:
+        print(f"[DEBUG][equal_types] ⚠️ Uno de los tipos es None → a={a}, b={b}")
+        return False
+
+    
     if isinstance(a, ArrayType) and isinstance(b, ArrayType):
-        return a.dims == b.dims and equal_types(a.elem, b.elem)  # type: ignore[arg-type]
-    return a.name == b.name
+        print(f"[DEBUG][equal_types] Comparando arrays: {a} vs {b}")
+        return a.dims == b.dims and equal_types(a.elem, b.elem)
+
+    res = a.name == b.name
+    print(f"[DEBUG][equal_types] {a} vs {b} → {res}")
+    return res
 
 def make_array(elem: Type, dims: int = 1) -> ArrayType:
     return ArrayType(name=f"{elem.name}{'[]'*dims}", elem=elem, dims=dims)
@@ -67,31 +76,57 @@ def make_fn(params: list[Type], ret: Type) -> FunctionType:
     return FunctionType(name="function", params=tuple(params), ret=ret)
 
 
-# ----- Reglas de compatibilidad -----
-def can_assign(dst: Type, src: Type) -> bool:
-    """
-    Asignación semánticamente válida:
-      - Tipos exactamente iguales.
-      - null asignable a referencias (arrays, clases, string).
-    """
+
+def can_assign(dst: Optional[Type], src: Optional[Type]) -> bool:
+    if dst is None or src is None:
+        print(f"[DEBUG][can_assign] ⚠️ dst={dst}, src={src}")
+        return False
+
     if equal_types(dst, src):
+        print(f"[DEBUG][can_assign] ✅ {src} asignable a {dst}")
         return True
+
     if isinstance(dst, ArrayType) and src.name == T_NULL:
         return True
     if isinstance(dst, ClassType) and src.name == T_NULL:
         return True
     if is_string(dst) and src.name == T_NULL:
         return True
+
+    print(f"[DEBUG][can_assign] ❌ {src} NO asignable a {dst}")
     return False
 
 def arithmetic_type(lhs: Type, rhs: Type) -> Optional[Type]:
-    # + - * / requieren numéricos y devuelven integer
+    """
+    Reglas para operaciones aritméticas y concatenación:
+      - integer (+,-,*,/) integer → integer
+      - string + string → string
+      - string + integer → string
+      - integer + string → string
+    """
+    
     if is_numeric(lhs) and is_numeric(rhs):
+        print(f"[DEBUG][arithmetic_type] {lhs} + {rhs} → integer")
         return INTEGER
+
+    
+    if is_string(lhs) and is_string(rhs):
+        print(f"[DEBUG][arithmetic_type] {lhs} + {rhs} → string")
+        return STRING
+    if is_string(lhs) and is_numeric(rhs):
+        print(f"[DEBUG][arithmetic_type] {lhs} + {rhs} → string (string+int)")
+        return STRING
+    if is_numeric(lhs) and is_string(rhs):
+        print(f"[DEBUG][arithmetic_type] {lhs} + {rhs} → string (int+string)")
+        return STRING
+
+    
+    print(f"[DEBUG][arithmetic_type] ❌ no rule for {lhs} + {rhs}")
     return None
 
+
 def logical_type(lhs: Type, rhs: Type) -> Optional[Type]:
-    # && || requieren boolean y devuelven boolean.
+    
     if is_boolean(lhs) and is_boolean(rhs):
         return BOOLEAN
     return None

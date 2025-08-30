@@ -1,22 +1,29 @@
-// Error 1: asignación incompatible (integer ← string)
-let x: integer = "texto";
+// Constante mal inicializada: integer ← string
+const PI: integer = "no soy un número";
 
-// Error 2: redeclaración en el mismo scope
-let y: boolean = true;
-let y: integer = 5;
+// Variable sin tipo explícito, pero asignación incorrecta
+let saludo = 123;   // debería ser string si luego lo usamos como tal
 
-// Error 3: condición del if no es booleana
-if (123) {
-  print("Esto no debería compilar");
+// Variable usada sin declarar
+resultado = 10;  // no existe resultado todavía
+
+// Función con return mal tipado
+function sumarTexto(a: integer, b: integer): integer {
+  return "hola";  // error: string a integer
 }
 
-// Error 4: llamada de función con parámetros incorrectos
-function cuadrado(n: integer): integer {
-  return n * n;
-}
-let z: integer = cuadrado("hola");  // pasa string en lugar de int
+// Clase con asignación de tipo incorrecto
+class Persona {
+  let edad: integer;
 
-// Error 5: función retorna string pero tipada como integer
-function malo(): integer {
-  return "soy un string";
+  function constructor(edad: integer) {
+    this.edad = "treinta"; // error: string a integer
+  }
+
+  function hablar(): string {
+    return 123; // error: integer a string
+  }
 }
+
+// Instancia de clase no definida
+let x: Animal = new Animal(); // error: clase Animal no existe
