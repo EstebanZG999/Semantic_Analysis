@@ -2,11 +2,11 @@ DOCKER_IMAGE := csp-image
 PROJECT_ROOT := $(PWD)
 PROGRAM_DIR  := $(PWD)/program
 
-# Montamos tpdo el repo en /workspace
+# Montamos todo el repo en /workspace
 DOCKER_RUN   := docker run --rm -ti -u $(shell id -u):$(shell id -g) \
   -v "$(PROJECT_ROOT)":/workspace -w /workspace $(DOCKER_IMAGE)
 
-.PHONY: docker-build gen run test clean
+.PHONY: docker-build gen run test clean ide
 
 docker-build:
 	docker build --rm . -t $(DOCKER_IMAGE)
@@ -33,8 +33,9 @@ clean:
 		-name "Compiscript*.py" -o -name "Compiscript*.tokens" -o -name "Compiscript*.interp" \
 	\) -print -delete
 
+# ---------- Tests específicos ----------
 
-.PHONY: test-scopes cov-scopes shell lint-b type-b
+.PHONY: test-scopes test-scopes-stack cov-scopes shell lint-b type-b
 
 # Ejecuta SOLO los tests de scopes
 test-scopes: docker-build
@@ -52,7 +53,7 @@ test-scopes-stack: docker-build
 		pytest -q tests/semantic/test_scopes_stack.py \
 	'
 
-# Reporte de cobertura centrado en src/sema/scopes.py
+# Reporte de cobertura centrado en semantic/scopes.py
 cov-scopes: docker-build
 	$(DOCKER_RUN) bash -lc '\
 		python3 -m pip install -q --break-system-packages pytest pytest-cov && \
@@ -60,7 +61,8 @@ cov-scopes: docker-build
 		pytest -q --cov=semantic/scopes.py --cov-report=term-missing tests/semantic/test_scopes.py \
 	'
 
-# Abre una shell interactiva en el contenedor (para depurar imports/paths)
+
+# Abre una shell interactiva en el contenedor
 shell: docker-build
 	$(DOCKER_RUN) bash
 
@@ -70,3 +72,8 @@ lint-b: docker-build
 		python3 -m pip install -q --break-system-packages ruff && \
 		ruff check program/semantic/scopes.py \
 	'
+
+ide: docker-build
+	docker run --rm -it -p 8501:8501 \
+	  -v "$(PROJECT_ROOT)":/workspace -w /workspace/program/semantic $(DOCKER_IMAGE) \
+	  streamlit run app.py --server.port=8501 --server.address=0.0.0.0

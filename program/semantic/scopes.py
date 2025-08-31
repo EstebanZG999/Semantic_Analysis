@@ -9,7 +9,7 @@ class Scope:
     kind: str  # 'global' | 'class' | 'function' | 'block'
     parent: Optional['Scope'] = None
     symbols: Dict[str, Symbol] = field(default_factory=dict)
-    owner: Symbol | None = None   # quién "posee" este scope (ej: función o clase)
+    owner: Symbol | None = None   
 
 
     def define(self, sym: Symbol) -> bool:
@@ -55,7 +55,7 @@ class FunctionScope(Scope):
         super().__init__('function', parent)
         self.func_name = name
         self.return_type = return_type
-        self.has_return = False  # Persona C lo pondrá en True al ver un 'return'
+        self.has_return = False  
 
 class ClassScope(Scope):
     def __init__(self, parent: Scope, class_name: str) -> None:
