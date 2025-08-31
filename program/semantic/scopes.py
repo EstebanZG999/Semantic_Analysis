@@ -9,6 +9,8 @@ class Scope:
     kind: str  # 'global' | 'class' | 'function' | 'block'
     parent: Optional['Scope'] = None
     symbols: Dict[str, Symbol] = field(default_factory=dict)
+    owner: Symbol | None = None   # quién "posee" este scope (ej: función o clase)
+
 
     def define(self, sym: Symbol) -> bool:
         """
@@ -101,11 +103,13 @@ class ScopeStack:
     def push_function(self, return_type, name: str | None = None) -> FunctionScope:
         fs = FunctionScope(self.current, return_type, name)
         self.stack.append(fs)
+        fs.owner = self.current.resolve(name) if name else None
         return fs
 
     def push_class(self, class_name: str) -> ClassScope:
         cs = ClassScope(self.current, class_name)
         self.stack.append(cs)
+        cs.owner = self.current.resolve(class_name)
         return cs
 
     def pop(self) -> Scope:

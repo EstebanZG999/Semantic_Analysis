@@ -34,16 +34,23 @@ class TypeChecker(CompiscriptVisitor):
         return sym
 
     def visitProgram(self, ctx: CompiscriptParser.ProgramContext):
-        self.scopes.push("global")
+        if not self.scopes.stack:
+            self.scopes.push("global")
         for stmt in ctx.statement():
             self.visit(stmt)
-        self.scopes.pop()
         return None
+
 
     def visitVariableDeclaration(self, ctx: CompiscriptParser.VariableDeclarationContext):
         name = ctx.Identifier().getText()
         vtype = self.visit(ctx.typeAnnotation().type_()) if ctx.typeAnnotation() else VOID
-        sym = VarSymbol(name, vtype, is_const=False, is_initialized=False)
+        sym = VarSymbol(
+            name, vtype,
+            is_const=False,
+            is_initialized=False,
+            line=ctx.start.line,
+            col=ctx.start.column
+        )
 
         if ctx.initializer():
             init_t = self.visit(ctx.initializer().expression()) or VOID
@@ -56,17 +63,25 @@ class TypeChecker(CompiscriptVisitor):
         self.define_symbol(sym)
         return None
 
+
     def visitConstantDeclaration(self, ctx: CompiscriptParser.ConstantDeclarationContext):
         name = ctx.Identifier().getText()
         vtype = self.visit(ctx.typeAnnotation().type_()) if ctx.typeAnnotation() else VOID
         init_t = self.visit(ctx.expression())
-        sym = VarSymbol(name, vtype, is_const=True, is_initialized=True)
+        sym = VarSymbol(
+            name, vtype,
+            is_const=True,
+            is_initialized=True,
+            line=ctx.start.line,
+            col=ctx.start.column
+        )
 
         if not can_assign(vtype, init_t):
             self.reporter.report(ctx.start.line, ctx.start.column, "E_ASSIGN",
                                 f"No se puede asignar {init_t} a {vtype}")
         self.define_symbol(sym)
         return None
+
 
     def visitAssignment(self, ctx: CompiscriptParser.AssignmentContext):
         exprs = ctx.expression()
@@ -108,13 +123,20 @@ class TypeChecker(CompiscriptVisitor):
             for i, p in enumerate(ctx.parameters().parameter()):
                 pname = p.Identifier().getText()
                 ptype = self.visit(p.type_()) if p.type_() else VOID
-                param_sym = ParamSymbol(pname, ptype, i)
+                param_sym = ParamSymbol(
+                    pname, ptype, i,
+                    line=p.start.line, col=p.start.column
+                )
                 params.append(param_sym)
 
         func_type = make_fn([p.type for p in params], ret_type)
-        func_sym = FuncSymbol(name, type=func_type, params=tuple(params))
+        func_sym = FuncSymbol(
+            name, type=func_type, params=tuple(params),
+            line=ctx.start.line, col=ctx.start.column
+        )
         self.define_symbol(func_sym)
 
+        # scope propio de la función
         self.scopes.push_function(ret_type, name)
         for psym in params:
             self.define_symbol(psym)
@@ -301,7 +323,8 @@ class TypeChecker(CompiscriptVisitor):
 
     def visitClassDeclaration(self, ctx: CompiscriptParser.ClassDeclarationContext):
         name = ctx.Identifier(0).getText()
-        csym = ClassSymbol(name, type=Type(name))
+        csym = ClassSymbol(name, type=Type(name),
+                        line=ctx.start.line, col=ctx.start.column)
         csym.fields = {}
         csym.methods = {}
         if ctx.Identifier(1):
@@ -325,10 +348,12 @@ class TypeChecker(CompiscriptVisitor):
                     for i, p in enumerate(member.functionDeclaration().parameters().parameter()):
                         pname = p.Identifier().getText()
                         ptype = self.visit(p.type_()) if p.type_() else VOID
-                        params.append(ParamSymbol(pname, ptype, i))
+                        params.append(ParamSymbol(pname, ptype, i,
+                                                line=p.start.line, col=p.start.column))
                 
                 func_type = make_fn([p.type for p in params], ret_type)
-                fsym = FuncSymbol(fname, type=func_type, params=tuple(params))
+                fsym = FuncSymbol(fname, type=func_type, params=tuple(params),
+                                line=member.start.line, col=member.start.column)
                 csym.methods[fname] = fsym
 
                 self.scopes.push_function(ret_type, fname)
@@ -340,14 +365,16 @@ class TypeChecker(CompiscriptVisitor):
             elif member.variableDeclaration():
                 vname = member.variableDeclaration().Identifier().getText()
                 vtype = self.visit(member.variableDeclaration().typeAnnotation().type_()) if member.variableDeclaration().typeAnnotation() else VOID
-                vsym = VarSymbol(vname, vtype, is_const=False, is_initialized=False)
+                vsym = VarSymbol(vname, vtype, is_const=False, is_initialized=False,
+                                line=member.start.line, col=member.start.column)
                 csym.fields[vname] = vsym
                 self.define_symbol(vsym)
 
             elif member.constantDeclaration():
                 cname = member.constantDeclaration().Identifier().getText()
                 ctype = self.visit(member.constantDeclaration().typeAnnotation().type_()) if member.constantDeclaration().typeAnnotation() else VOID
-                csym.fields[cname] = VarSymbol(cname, ctype, is_const=True, is_initialized=True)
+                csym.fields[cname] = VarSymbol(cname, ctype, is_const=True, is_initialized=True,
+                                            line=member.start.line, col=member.start.column)
                 self.define_symbol(csym.fields[cname])
 
         self.scopes.pop()
@@ -514,13 +541,15 @@ class TypeChecker(CompiscriptVisitor):
             elem_t = Type(iter_t.name[:-2])  
 
         var_name = ctx.Identifier().getText()
-        sym = VarSymbol(var_name, elem_t, is_const=False, is_initialized=True)
+        sym = VarSymbol(var_name, elem_t, is_const=False, is_initialized=True,
+                        line=ctx.start.line, col=ctx.start.column)
         self.define_symbol(sym)
 
         self.scopes.push("loop")
         self.visit(ctx.block())
         self.scopes.pop()
         return None
+
 
     def visitSwitchStatement(self, ctx: CompiscriptParser.SwitchStatementContext):
         control_t = self.visit(ctx.expression())
@@ -558,10 +587,12 @@ class TypeChecker(CompiscriptVisitor):
 
         self.scopes.push("catch")
         err_name = ctx.Identifier().getText()
-        self.define_symbol(VarSymbol(err_name, STRING, is_const=False, is_initialized=True))
+        self.define_symbol(VarSymbol(err_name, STRING, is_const=False, is_initialized=True,
+                                    line=ctx.start.line, col=ctx.start.column))
         self.visit(ctx.block(1))  
         self.scopes.pop()
         return None
+
 
     def visitIndexExpr(self, ctx: CompiscriptParser.IndexExprContext):
         lhs_ctx = ctx.parentCtx.primaryAtom()
