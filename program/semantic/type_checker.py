@@ -136,16 +136,22 @@ class TypeChecker(CompiscriptVisitor):
         )
         self.define_symbol(func_sym)
 
-        # scope propio de la función
         self.scopes.push_function(ret_type, name)
         for psym in params:
             self.define_symbol(psym)
 
         returns = []
+        has_terminated = False
         for stmt in ctx.block().statement():
+            if has_terminated:
+                self.reporter.report(
+                    stmt.start.line, stmt.start.column, "E_DEADCODE",
+                    "Código muerto: esta instrucción nunca se ejecutará"
+                )
             r = self.visit(stmt)
             if stmt.returnStatement():
                 returns.append(r or VOID)
+                has_terminated = True
 
         self.scopes.pop()
 
@@ -159,6 +165,9 @@ class TypeChecker(CompiscriptVisitor):
                                     f"Return {rt} incompatible con {ret_type}")
 
         return None
+
+
+
 
     def visitReturnStatement(self, ctx: CompiscriptParser.ReturnStatementContext):
         if ctx.expression():
@@ -485,10 +494,12 @@ class TypeChecker(CompiscriptVisitor):
         if cond_t != BOOLEAN:
             self.reporter.report(ctx.start.line, ctx.start.column, "E_IF",
                                 f"Condición de if debe ser boolean, no {cond_t}")
-        self.visit(ctx.block(0))
-        if ctx.block(1):  
-            self.visit(ctx.block(1))
+        self.check_block_statements(ctx.block(0).statement(), ctx)
+        if ctx.block(1):
+            self.check_block_statements(ctx.block(1).statement(), ctx)
         return None
+
+
 
     def visitWhileStatement(self, ctx: CompiscriptParser.WhileStatementContext):
         cond_t = self.visit(ctx.expression())
@@ -496,19 +507,22 @@ class TypeChecker(CompiscriptVisitor):
             self.reporter.report(ctx.start.line, ctx.start.column, "E_WHILE",
                                 f"Condición de while debe ser boolean, no {cond_t}")
         self.scopes.push("loop")
-        self.visit(ctx.block())
+        self.check_block_statements(ctx.block().statement(), ctx)
         self.scopes.pop()
         return None
 
+
+
     def visitDoWhileStatement(self, ctx: CompiscriptParser.DoWhileStatementContext):
         self.scopes.push("loop")
-        self.visit(ctx.block())
+        self.check_block_statements(ctx.block().statement(), ctx)
         self.scopes.pop()
         cond_t = self.visit(ctx.expression())
         if cond_t != BOOLEAN:
             self.reporter.report(ctx.start.line, ctx.start.column, "E_DOWHILE",
                                 f"Condición de do-while debe ser boolean, no {cond_t}")
         return None
+
 
     def visitForStatement(self, ctx: CompiscriptParser.ForStatementContext):
         self.scopes.push("loop")
@@ -527,9 +541,10 @@ class TypeChecker(CompiscriptVisitor):
         if ctx.expression(1):
             self.visit(ctx.expression(1))
 
-        self.visit(ctx.block())
+        self.check_block_statements(ctx.block().statement(), ctx)
         self.scopes.pop()
         return None
+
 
     def visitForeachStatement(self, ctx: CompiscriptParser.ForeachStatementContext):
         iter_t = self.visit(ctx.expression())
@@ -546,10 +561,9 @@ class TypeChecker(CompiscriptVisitor):
         self.define_symbol(sym)
 
         self.scopes.push("loop")
-        self.visit(ctx.block())
+        self.check_block_statements(ctx.block().statement(), ctx)
         self.scopes.pop()
         return None
-
 
     def visitSwitchStatement(self, ctx: CompiscriptParser.SwitchStatementContext):
         control_t = self.visit(ctx.expression())
@@ -560,15 +574,14 @@ class TypeChecker(CompiscriptVisitor):
             if not can_assign(control_t, case_t):
                 self.reporter.report(ctx.start.line, ctx.start.column, "E_SWITCH",
                                     f"case {case_t} incompatible con switch {control_t}")
-            for stmt in case.statement():
-                self.visit(stmt)
+            self.check_block_statements(case.statement(), ctx)
 
         if ctx.defaultCase():
-            for stmt in ctx.defaultCase().statement():
-                self.visit(stmt)
+            self.check_block_statements(ctx.defaultCase().statement(), ctx)
 
         self.scopes.pop()
         return None
+
 
     def visitBreakStatement(self, ctx: CompiscriptParser.BreakStatementContext):
         if not self.scopes.inside("loop") and not self.scopes.inside("switch"):
@@ -699,3 +712,23 @@ class TypeChecker(CompiscriptVisitor):
         if ctx.expression():
             return self.visit(ctx.expression()) or VOID
         return VOID
+    
+    def check_block_statements(self, stmts, ctx):
+        """
+        Recorre un bloque y marca código muerto:
+        - después de return
+        - después de break
+        - después de continue
+        """
+        has_terminated = False
+        for stmt in stmts:
+            if has_terminated:
+                self.reporter.report(
+                    stmt.start.line, stmt.start.column, "E_DEADCODE",
+                    "Código muerto: esta instrucción nunca se ejecutará"
+                )
+            result = self.visit(stmt)
+
+            if stmt.returnStatement() or stmt.breakStatement() or stmt.continueStatement():
+                has_terminated = True
+
