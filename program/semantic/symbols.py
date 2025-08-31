@@ -32,9 +32,12 @@ class ParamSymbol(Symbol):
 class FuncSymbol(Symbol):
     type: FunctionType
     params: Tuple[ParamSymbol, ...] = field(default_factory=tuple)
-    def __init__(self, name, type, params=(), line=0, col=0):
+    closure_scope: Optional['Scope'] = None
+
+    def __init__(self, name, type, params=(), line=0, col=0, closure_scope=None):
         super().__init__(name, type, category="function", line=line, col=col)
         self.params = tuple(params)
+        self.closure_scope = closure_scope
 
 @dataclass
 class ClassSymbol(Symbol):

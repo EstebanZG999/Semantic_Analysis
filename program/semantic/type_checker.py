@@ -132,9 +132,18 @@ class TypeChecker(CompiscriptVisitor):
         func_type = make_fn([p.type for p in params], ret_type)
         func_sym = FuncSymbol(
             name, type=func_type, params=tuple(params),
-            line=ctx.start.line, col=ctx.start.column
+            line=ctx.start.line, col=ctx.start.column,
+            closure_scope=self.scopes.current
         )
         self.define_symbol(func_sym)
+
+        parent_scope = self.scopes.current
+        if hasattr(parent_scope, "func_name") and parent_scope.func_name:
+            parent_sym = self.resolve_symbol(parent_scope.func_name)
+            if isinstance(parent_sym, FuncSymbol):
+                if not hasattr(parent_sym, "nested"):
+                    parent_sym.nested = {}
+                parent_sym.nested[name] = func_sym
 
         self.scopes.push_function(ret_type, name)
         for psym in params:
@@ -252,6 +261,9 @@ class TypeChecker(CompiscriptVisitor):
                                     f"{base_name} no es una función")
                 return VOID
 
+            if sym.closure_scope:
+                self.scopes.push_child(sym.closure_scope)
+
             if len(args) != len(sym.params):
                 self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
                                     f"Número incorrecto de argumentos en {base_name}")
@@ -260,6 +272,9 @@ class TypeChecker(CompiscriptVisitor):
                     if not can_assign(param.type, arg_t):
                         self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
                                             f"Argumento {i} incompatible: {arg_t}, se esperaba {param.type}")
+
+            if sym.closure_scope:
+                self.scopes.pop()
 
             return sym.type.ret if isinstance(sym.type, FunctionType) else sym.type
 
@@ -310,6 +325,9 @@ class TypeChecker(CompiscriptVisitor):
         self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
                             f"Llamada inválida en {base_name}")
         return VOID
+    
+
+
 
     def visitIdentifierExpr(self, ctx: CompiscriptParser.IdentifierExprContext):
         name = ctx.Identifier().getText()

@@ -7,6 +7,7 @@ from CompiscriptParser import CompiscriptParser
 from semantic.type_checker import TypeChecker
 from semantic.error_reporter import ErrorReporter
 from semantic.scopes import GlobalScope
+from semantic.symbols import FuncSymbol, ClassSymbol
 
 
 def compile_code(source: str):
@@ -24,27 +25,94 @@ def compile_code(source: str):
     return reporter, checker.scopes
 
 
+def render_scope(scope, container, indent=0):
+    pad = " " * (indent * 2)
+
+    rows = []
+    for _, sym in scope.items():
+        rows.append({
+            "Category": sym.category,
+            "Name": sym.name,
+            "Type": str(sym.type),
+            "Line": getattr(sym, "line", 0),
+            "Col": getattr(sym, "col", 0)
+        })
+
+        # Mostrar parámetros
+        if isinstance(sym, FuncSymbol):
+            for p in sym.params:
+                rows.append({
+                    "Category": "param",
+                    "Name": p.name,
+                    "Type": str(p.type),
+                    "Line": getattr(p, "line", 0),
+                    "Col": getattr(p, "col", 0)
+                })
+            # Mostrar funciones anidadas
+            if hasattr(sym, "nested"):
+                for nname, nsym in sym.nested.items():
+                    rows.append({
+                        "Category": "nested function",
+                        "Name": nname,
+                        "Type": str(nsym.type),
+                        "Line": getattr(nsym, "line", 0),
+                        "Col": getattr(nsym, "col", 0)
+                    })
+                    for np in nsym.params:
+                        rows.append({
+                            "Category": "param",
+                            "Name": np.name,
+                            "Type": str(np.type),
+                            "Line": getattr(np, "line", 0),
+                            "Col": getattr(np, "col", 0)
+                        })
+
+        # Mostrar clases
+        if isinstance(sym, ClassSymbol):
+            for fname, fsym in sym.fields.items():
+                rows.append({
+                    "Category": "field",
+                    "Name": fname,
+                    "Type": str(fsym.type),
+                    "Line": getattr(fsym, "line", 0),
+                    "Col": getattr(fsym, "col", 0)
+                })
+            for mname, msym in sym.methods.items():
+                rows.append({
+                    "Category": "method",
+                    "Name": mname,
+                    "Type": str(msym.type),
+                    "Line": getattr(msym, "line", 0),
+                    "Col": getattr(msym, "col", 0)
+                })
+
+    if rows:
+        container.table(rows)
+
 
 st.set_page_config(page_title="Compiscript IDE", layout="wide")
 
-st.title(" Compiscript Mini-IDE")
+st.title("📝 Compiscript Mini-IDE")
 st.write("Escribe tu programa en Compiscript y compílalo con un clic.")
 
 default_code = """// Programa de ejemplo
 const PI: integer = 314;
 let saludo: string = "Hola mundo!";
 
-function multiplicar(a: integer, b: integer): integer {
-  return a * b;
+function externo(x: integer): integer {
+  function interno(y: integer): integer {
+    return x + y;
+  }
+  return interno(5);
 }
 
-let resultado: integer = multiplicar(6, 7);
+let resultado: integer = externo(10);
 print("Resultado: " + resultado);
 """
 
 code = st.text_area("Editor", default_code, height=400)
 
-if st.button("Compile 🚀"):
+if st.button("Compile "):
     reporter, scopes = compile_code(code)
 
     if reporter.has_errors():
@@ -54,17 +122,7 @@ if st.button("Compile 🚀"):
     else:
         st.success(" Compilación completada sin errores")
 
-    
+    st.subheader(" Tabla de Símbolos")
     for scope in scopes.stack:
-        st.subheader(f"Scope: {scope.kind}")
-        rows = [
-            {
-                "Category": sym.category,
-                "Name": sym.name,
-                "Type": str(sym.type),
-                "Line": sym.line,
-                "Col": sym.col
-            }
-            for _, sym in scope.items()
-        ]
-        st.table(rows)
+        with st.expander(f"Scope: {scope.kind}", expanded=True):
+            render_scope(scope, st)
