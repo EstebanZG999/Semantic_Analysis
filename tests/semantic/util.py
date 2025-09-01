@@ -16,6 +16,7 @@ def compile_source(source: str):
     tree = parser.program()
 
     reporter = ErrorReporter()
-    checker = TypeChecker(reporter, GlobalScope())
+    checker = TypeChecker(reporter)
+
     checker.visit(tree)
     return reporter, checker
