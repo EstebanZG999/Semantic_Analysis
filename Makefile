@@ -16,8 +16,11 @@ gen: docker-build
 	$(DOCKER_RUN) bash -lc 'cd program && antlr -Dlanguage=Python3 -visitor Compiscript.g4 && ls -1 Compiscript*.py'
 
 # Ejecuta el driver dentro del contenedor
-run: docker-build
-	$(DOCKER_RUN) python3 program/Driver.py program/program.cps
+run: docker-build gen
+	$(DOCKER_RUN) bash -lc '\
+		export PYTHONPATH=/workspace:/workspace/program && \
+		python3 program/Driver.py program/program.cps \
+	'
 
 # Corre pytest dentro del contenedor
 test: docker-build
@@ -33,6 +36,12 @@ clean:
 		-name "Compiscript*.py" -o -name "Compiscript*.tokens" -o -name "Compiscript*.interp" \
 	\) -print -delete
 
+
+rebuild:
+	docker buildx prune -af || true
+	docker system prune -af --volumes || true
+	docker rmi $(DOCKER_IMAGE) || true
+	docker build --no-cache --pull -t $(DOCKER_IMAGE) .
 # ---------- Tests específicos ----------
 
 .PHONY: test-scopes test-scopes-stack cov-scopes shell lint-b type-b
@@ -73,7 +82,10 @@ lint-b: docker-build
 		ruff check program/semantic/scopes.py \
 	'
 
-ide: docker-build
+ide: docker-build gen
 	docker run --rm -it -p 8501:8501 \
 	  -v "$(PROJECT_ROOT)":/workspace -w /workspace/program/semantic $(DOCKER_IMAGE) \
-	  streamlit run app.py --server.port=8501 --server.address=0.0.0.0
+	  bash -lc '\
+	    export PYTHONPATH=/workspace:/workspace/program && \
+	    streamlit run app.py --server.port=8501 --server.address=0.0.0.0 \
+	  '
