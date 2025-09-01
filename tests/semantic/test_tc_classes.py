@@ -28,8 +28,3 @@ def test_class_invalid_member_access_and_this_outside():
     """
     rep, _ = compile_source(code_bad)
     assert rep.has_errors(), "Errores de this fuera de clase y acceso inválido debían fallar"
-
-# TODO futuro (cuando el checker permita llamadas/instanciación):
-# new A(10);         // constructor con aridad/argumentos
-# p = new Point(2,3) // asignación de instancia a variable
-# p.touch();         // llamada a método como sentencia/expresión
