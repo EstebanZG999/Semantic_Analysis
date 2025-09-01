@@ -8,7 +8,7 @@ from CompiscriptParser import CompiscriptParser
 from semantic.type_checker import TypeChecker
 from semantic.error_reporter import ErrorReporter
 from semantic.scopes import GlobalScope
-from semantic.symbols import FuncSymbol, ClassSymbol
+from semantic.symbols import FuncSymbol, ClassSymbol, VarSymbol
 
 
 # --- Graphviz helpers ---
@@ -57,7 +57,7 @@ def compile_code(source: str):
     tree = parser.program()
 
     reporter = ErrorReporter()
-    checker = TypeChecker(reporter, GlobalScope())
+    checker = TypeChecker(reporter)
     checker.visit(tree)
 
     return reporter, checker.scopes, parser, tree
@@ -126,6 +126,45 @@ def render_scope(scope, container, indent=0):
     if rows:
         container.table(rows)
 
+def get_global_scope(scopes):
+    # Devuelve el primer scope de tipo 'global' (o el 0 si no lo encuentra)
+    for s in scopes.stack:
+        if s.kind == "global":
+            return s
+    return scopes.stack[0] if scopes.stack else None
+
+
+def render_symbols(scopes, st):
+    g = get_global_scope(scopes)
+    if not g:
+        st.warning("No hay scope global disponible.")
+        return
+
+    # ---- Funciones globales
+    funcs = [(name, sym) for name, sym in g.items() if isinstance(sym, FuncSymbol)]
+    if funcs:
+        st.subheader("Funciones globales")
+        for name, sym in funcs:
+            st.markdown(f"**{name}** — `{sym.type}`")
+            # parámetros de la función global
+            if sym.params:
+                st.table([{
+                    "param": p.name,
+                    "index": p.index,
+                    "type": str(p.type)
+                } for p in sym.params])
+            # funciones anidadas
+            if hasattr(sym, "nested") and sym.nested:
+                st.markdown("↳ Funciones anidadas")
+                st.table([{
+                    "name": n,
+                    "type": str(ns.type),
+                    "params": ", ".join(f"{p.name}: {p.type}" for p in ns.params)
+                } for n, ns in sym.nested.items()])
+    else:
+        st.info("No hay funciones globales.")
+
+
 
 st.set_page_config(page_title="Compiscript IDE", layout="wide")
 
@@ -189,13 +228,27 @@ if do_compile:
         st.table(rows)
 
     # mostrar parámetros de cada función declarada en el scope global
+    # ---- Mostrar clases y sus miembros (en el global)
     global_scope = scopes.stack[0]
-    for _, sym in global_scope.items():
-        if getattr(sym, "category", "") == "function":
-            st.markdown(f"**Función `{sym.name}`** — firma: `{sym.type}`")
-            if hasattr(sym, "params") and sym.params:
-                param_rows = [
-                    {"Param": p.name, "Index": p.index, "Type": str(p.type)}
-                    for p in sym.params
-                ]
-                st.table(param_rows)
+    for name, sym in global_scope.items():
+        if isinstance(sym, ClassSymbol):
+            st.markdown(f"### Clase `{name}`")
+
+            if getattr(sym, "fields", None):
+                st.markdown("**Campos**")
+                st.table([{
+                    "Nombre": fname,
+                    "Tipo": str(fsym.type),
+                    "Línea": getattr(fsym, "line", 0),
+                    "Col": getattr(fsym, "col", 0),
+                } for fname, fsym in sym.fields.items()])
+
+            if getattr(sym, "methods", None):
+                st.markdown("**Métodos**")
+                st.table([{
+                    "Nombre": mname,
+                    "Tipo": str(msym.type),
+                    "Parámetros": ", ".join(f"{p.name}: {p.type}" for p in msym.params),
+                    "Línea": getattr(msym, "line", 0),
+                    "Col": getattr(msym, "col", 0),
+                } for mname, msym in sym.methods.items()])
