@@ -29,6 +29,15 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+
+# =============================
+# Graphviz
+# =============================
+RUN apt-get update && apt-get install -y \
+    graphviz \
+ && rm -rf /var/lib/apt/lists/*
+
+
 # =============================
 # ANTLR
 # =============================
