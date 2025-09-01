@@ -16,8 +16,12 @@ def test_assign_null_to_refs():
     assert not can_assign(INTEGER, NULL)
 
 def test_arithmetic():
+    # integer op integer → integer
     assert arithmetic_type(INTEGER, INTEGER).name == "integer"
-    assert arithmetic_type(INTEGER, STRING) is None
+    # concatenación soportada por el lenguaje: string + integer / integer + string / string + string → string
+    assert arithmetic_type(INTEGER, STRING).name == "string"
+    assert arithmetic_type(STRING, INTEGER).name == "string"
+    assert arithmetic_type(STRING, STRING).name == "string"
 
 def test_logical():
     assert logical_type(BOOLEAN, BOOLEAN).name == "boolean"

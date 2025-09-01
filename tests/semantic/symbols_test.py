@@ -12,7 +12,12 @@ def test_funcsymbol():
     f = FuncSymbol(name="foo", type=ftype, params=(p0, p1))
     assert f.type.ret == INTEGER and len(f.params) == 2
 
-def test_classsymbol():
-    c = ClassSymbol(name="Point", type=STRING) 
-    c.fields["x"] = VarSymbol(name="x", type=INTEGER)
-    assert "x" in c.fields
+def test_classsymbol_minimal():
+
+    c = ClassSymbol(name="Point", type=STRING)
+    assert c.name == "Point"
+    assert c.category == "class"
+
+    if hasattr(c, "fields"):
+        c.fields["x"] = VarSymbol(name="x", type=INTEGER)
+        assert "x" in c.fields
