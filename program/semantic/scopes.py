@@ -67,7 +67,6 @@ class ClassScope(Scope):
 class ScopeStack:
     """
     Pila de scopes para usar desde el TypeChecker.
-    No depende de ANTLR. Persona C llama push/pop en visitProgram/visitBlock/visitFunction/visitClass.
     """
     def __init__(self, root: Optional[Scope] = None):
         self.stack: list[Scope] = [root] if root else []
@@ -93,23 +92,35 @@ class ScopeStack:
             s = Scope(kind, parent)
         self.stack.append(s)
         return s
-
+    
     def push_child(self, child: Scope) -> Scope:
-        """Permite reutilizar un Scope preconstruido como hijo del actual."""
+        """Permite reutilizar un Scope preconstruido como hijo del actual, evitando ciclos."""
+        # Si ya es el current, no lo dupliques
+        if self.stack and child is self.current:
+            return child
+
+        new_parent = self.current if self.stack else None
+        # Evitar ciclo directo: parent == child
+        if child is new_parent:
+            return child
+
         child.parent = self.current if self.stack else None
         self.stack.append(child)
         return child
 
     def push_function(self, return_type, name: str | None = None) -> FunctionScope:
-        fs = FunctionScope(self.current, return_type, name)
+        # Usa el padre ANTES de apilar para evitar ciclos o mirar al scope equivocado
+        parent = self.current if self.stack else None
+        fs = FunctionScope(parent, return_type, name)
         self.stack.append(fs)
-        fs.owner = self.current.resolve(name) if name else None
+        fs.owner = parent.resolve(name) if (name and parent) else None
         return fs
 
     def push_class(self, class_name: str) -> ClassScope:
-        cs = ClassScope(self.current, class_name)
+        parent = self.current if self.stack else None
+        cs = ClassScope(parent, class_name)
         self.stack.append(cs)
-        cs.owner = self.current.resolve(class_name)
+        cs.owner = parent.resolve(class_name) if parent else None
         return cs
 
     def pop(self) -> Scope:
@@ -119,6 +130,7 @@ class ScopeStack:
 
     def depth(self) -> int:
         return len(self.stack)
+
     def inside(self, kind: str) -> bool:
         for s in reversed(self.stack):
             if s.kind == kind:
