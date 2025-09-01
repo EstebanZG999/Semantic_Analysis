@@ -11,16 +11,19 @@ from semantic.typesys import (
 from semantic.error_reporter import ErrorReporter
 from CompiscriptVisitor import CompiscriptVisitor
 from CompiscriptParser import CompiscriptParser
-
+from contextlib import contextmanager
 
 class TypeChecker(CompiscriptVisitor):
-    def __init__(self, reporter: ErrorReporter, global_scope: GlobalScope | None = None):
+    def __init__(self, reporter: ErrorReporter):
         super().__init__()
-        self.scopes = ScopeStack(global_scope or GlobalScope())
         self.reporter = reporter
+        self.scopes = ScopeStack()
+        self.scopes.push("global")   # GLOBAL AQUI
         self._current_class: str | None = None
 
     def define_symbol(self, sym):
+        if not self.scopes.stack:
+            self.scopes.push("global")
         if not self.scopes.current.define(sym):
             self.reporter.report(0, 0, "E_REDECL", f"Redeclaración de {sym.name}")
 
@@ -34,12 +37,9 @@ class TypeChecker(CompiscriptVisitor):
         return sym
 
     def visitProgram(self, ctx: CompiscriptParser.ProgramContext):
-        if not self.scopes.stack:
-            self.scopes.push("global")
         for stmt in ctx.statement():
             self.visit(stmt)
         return None
-
 
     def visitVariableDeclaration(self, ctx: CompiscriptParser.VariableDeclarationContext):
         name = ctx.Identifier().getText()
@@ -86,26 +86,45 @@ class TypeChecker(CompiscriptVisitor):
     def visitAssignment(self, ctx: CompiscriptParser.AssignmentContext):
         exprs = ctx.expression()
 
+        # asignación de propiedad ->  <expr> '.' Identifier '=' <expr> ';'
         if isinstance(exprs, list) and len(exprs) == 2:
             obj_t = self.visit(exprs[0]) or VOID
             value_t = self.visit(exprs[1]) or VOID
             prop_name = ctx.Identifier().getText()
 
-            if self._current_class and isinstance(obj_t, Type) and obj_t.name == self._current_class:
-                class_sym = self.scopes.current.resolve(self._current_class)
-                if isinstance(class_sym, ClassSymbol):
-                    field = class_sym.fields.get(prop_name) if hasattr(class_sym, "fields") else None
-                    if field and not can_assign(field.type, value_t):
+            # Debe ser un objeto con tipo de clase conocido
+            if not isinstance(obj_t, Type):
+                self.reporter.report(ctx.start.line, ctx.start.column, "E_ASSIGN",
+                                    f"No se puede asignar propiedad '{prop_name}' en {obj_t}")
+                return VOID
+
+            # Resolver la clase y buscar el campo (con herencia)
+            class_sym = self.resolve_symbol(obj_t.name, ctx.start.line, ctx.start.column)
+            while isinstance(class_sym, ClassSymbol):
+                field = class_sym.fields.get(prop_name) if hasattr(class_sym, "fields") else None
+                if field:
+                    # Verificar asignabilidad
+                    if not can_assign(field.type, value_t):
                         self.reporter.report(ctx.start.line, ctx.start.column, "E_ASSIGN",
                                             f"No se puede asignar {value_t} a campo {field.type}")
-                    return field.type if field else VOID
+                    return field.type
+                # subir a la base si hay herencia
+                if hasattr(class_sym, "base") and class_sym.base:
+                    class_sym = self.resolve_symbol(class_sym.base, ctx.start.line, ctx.start.column)
+                else:
+                    break
 
-            return value_t
+            # Campo no existe en la jerarquía
+            self.reporter.report(ctx.start.line, ctx.start.column, "E_ASSIGN",
+                                f"Campo '{prop_name}' no definido en {obj_t.name}")
+            return VOID
 
+        # asignación simple ->  Identifier '=' <expr> ';'
         else:
             name = ctx.Identifier().getText()
             sym = self.resolve_symbol(name, ctx.start.line, ctx.start.column)
             target_t = (sym.type if sym else VOID) or VOID
+
             expr_node = exprs[0] if isinstance(exprs, list) else exprs
             value_t = self.visit(expr_node) or VOID
 
@@ -113,6 +132,7 @@ class TypeChecker(CompiscriptVisitor):
                 self.reporter.report(ctx.start.line, ctx.start.column, "E_ASSIGN",
                                     f"No se puede asignar {value_t} a {target_t}")
             return target_t
+
 
     def visitFunctionDeclaration(self, ctx: CompiscriptParser.FunctionDeclarationContext):
         name = ctx.Identifier().getText()
@@ -151,16 +171,17 @@ class TypeChecker(CompiscriptVisitor):
 
         returns = []
         has_terminated = False
-        for stmt in ctx.block().statement():
-            if has_terminated:
-                self.reporter.report(
-                    stmt.start.line, stmt.start.column, "E_DEADCODE",
-                    "Código muerto: esta instrucción nunca se ejecutará"
-                )
-            r = self.visit(stmt)
-            if stmt.returnStatement():
-                returns.append(r or VOID)
-                has_terminated = True
+        with self._block():
+            for stmt in ctx.block().statement():
+                if has_terminated:
+                    self.reporter.report(
+                        stmt.start.line, stmt.start.column, "E_DEADCODE",
+                        "Código muerto: esta instrucción nunca se ejecutará"
+                    )
+                r = self.visit(stmt)
+                if stmt.returnStatement():
+                    returns.append(r or VOID)
+                    has_terminated = True
 
         self.scopes.pop()
 
@@ -175,16 +196,21 @@ class TypeChecker(CompiscriptVisitor):
 
         return None
 
+    def visitReturnStatement(self, ctx):
+        # Validar que estemos dentro de una función
+        if not self.scopes.inside("function"):
+            self.reporter.report(ctx.start.line, ctx.start.column, "E_RETURN", "`return` fuera de una función.")
+            # Evaluar expresión para no romper el recorrido
+            if ctx.expression() is not None:
+                self.visit(ctx.expression())
+            return VOID
 
+        # Evaluar el tipo retornado y regresarlo (visitFunctionDeclaration lo recolecta)
+        ret_t = VOID
+        if ctx.expression() is not None:
+            ret_t = self.visit(ctx.expression()) or VOID
+        return ret_t
 
-
-    def visitReturnStatement(self, ctx: CompiscriptParser.ReturnStatementContext):
-        if ctx.expression():
-            ret_t = self.visit(ctx.expression())
-            if ret_t is None:
-                ret_t = VOID
-            return ret_t
-        return VOID
 
     def visitAdditiveExpr(self, ctx: CompiscriptParser.AdditiveExprContext):
         t = self.visit(ctx.multiplicativeExpr(0)) or VOID
@@ -237,33 +263,39 @@ class TypeChecker(CompiscriptVisitor):
         return VOID
 
     def visitCallExpr(self, ctx: CompiscriptParser.CallExprContext):
+        # Recolectar tipos de argumentos
         args = []
         if ctx.arguments():
             for e in ctx.arguments().expression():
                 arg_t = self.visit(e) or VOID
                 args.append(arg_t)
 
+        # Verificar contexto (la llamada siempre cuelga de LeftHandSide)
         lhs_ctx = ctx.parentCtx
         if not isinstance(lhs_ctx, CompiscriptParser.LeftHandSideContext):
             self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL", "Contexto inválido en llamada")
             return VOID
 
+        # Nombre base (para llamadas del estilo: foo(...))
+        base_name = None
         if lhs_ctx.primaryAtom() and lhs_ctx.primaryAtom().Identifier():
             base_name = lhs_ctx.primaryAtom().Identifier().getText()
-        else:
-            self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL", "Llamada sin identificador base")
-            return VOID
 
-        if len(lhs_ctx.suffixOp()) == 1 and lhs_ctx.suffixOp(0) == ctx:
+        # llamada simple:  Identifier '(' args ')'    (no hay más suffixes)
+        if len(lhs_ctx.suffixOp()) == 1 and lhs_ctx.suffixOp(0) == ctx and base_name is not None:
             sym = self.resolve_symbol(base_name, ctx.start.line, ctx.start.column)
             if not sym or not isinstance(sym, FuncSymbol):
                 self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
                                     f"{base_name} no es una función")
                 return VOID
 
-            if sym.closure_scope:
+            # Si la función captura un scope
+            pushed = False
+            if sym.closure_scope and sym.closure_scope is not self.scopes.current:
                 self.scopes.push_child(sym.closure_scope)
+                pushed = True
 
+            # Chequeo de aridad y tipos
             if len(args) != len(sym.params):
                 self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
                                     f"Número incorrecto de argumentos en {base_name}")
@@ -273,11 +305,13 @@ class TypeChecker(CompiscriptVisitor):
                         self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
                                             f"Argumento {i} incompatible: {arg_t}, se esperaba {param.type}")
 
-            if sym.closure_scope:
+            # Desapilar solo si apilamos antes
+            if pushed:
                 self.scopes.pop()
 
             return sym.type.ret if isinstance(sym.type, FunctionType) else sym.type
 
+        # llamada con acceso previo:  obj . method '(' args ')'  (último suffix es la llamada)
         if len(lhs_ctx.suffixOp()) >= 2 and lhs_ctx.suffixOp()[-1] == ctx:
             prev_suffix = lhs_ctx.suffixOp()[-2]
             if isinstance(prev_suffix, CompiscriptParser.PropertyAccessExprContext):
@@ -296,21 +330,24 @@ class TypeChecker(CompiscriptVisitor):
                                         f"{obj_sym.type.name} no es una clase válida")
                     return VOID
 
+                # Buscar método en la jerarquía (herencia)
                 method = None
-                while isinstance(class_sym, ClassSymbol):
-                    method = class_sym.methods.get(method_name)
+                cur_class = class_sym
+                while isinstance(cur_class, ClassSymbol):
+                    method = cur_class.methods.get(method_name)
                     if method:
                         break
-                    if hasattr(class_sym, "base") and class_sym.base:
-                        class_sym = self.resolve_symbol(class_sym.base, ctx.start.line, ctx.start.column)
+                    if hasattr(cur_class, "base") and cur_class.base:
+                        cur_class = self.resolve_symbol(cur_class.base, ctx.start.line, ctx.start.column)
                     else:
-                        class_sym = None
+                        cur_class = None
 
                 if not method:
                     self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
                                         f"Método {method_name} no definido en {obj_sym.type.name}")
                     return VOID
 
+                # Chequeo de aridad y tipos
                 if len(args) != len(method.params):
                     self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
                                         f"Número incorrecto de argumentos en {obj_sym.type.name}.{method_name}")
@@ -322,11 +359,10 @@ class TypeChecker(CompiscriptVisitor):
 
                 return method.type.ret if isinstance(method.type, FunctionType) else method.type
 
+        # Si ninguna forma reconocida matcheó
         self.reporter.report(ctx.start.line, ctx.start.column, "E_CALL",
-                            f"Llamada inválida en {base_name}")
+                            f"Llamada inválida{f' en {base_name}' if base_name else ''}")
         return VOID
-    
-
 
 
     def visitIdentifierExpr(self, ctx: CompiscriptParser.IdentifierExprContext):
@@ -508,34 +544,37 @@ class TypeChecker(CompiscriptVisitor):
         return tipo_final
 
     def visitIfStatement(self, ctx: CompiscriptParser.IfStatementContext):
-        cond_t = self.visit(ctx.expression())
+        cond_t = self.visit(ctx.expression()) or VOID
         if cond_t != BOOLEAN:
             self.reporter.report(ctx.start.line, ctx.start.column, "E_IF",
                                 f"Condición de if debe ser boolean, no {cond_t}")
-        self.check_block_statements(ctx.block(0).statement(), ctx)
+
+        # then
+        self.visit(ctx.block(0))  # crea BlockScope vía visitBlock
+
+        # else (opcional)
         if ctx.block(1):
-            self.check_block_statements(ctx.block(1).statement(), ctx)
+            self.visit(ctx.block(1))  # crea BlockScope
         return None
 
 
-
     def visitWhileStatement(self, ctx: CompiscriptParser.WhileStatementContext):
-        cond_t = self.visit(ctx.expression())
+        cond_t = self.visit(ctx.expression()) or VOID
         if cond_t != BOOLEAN:
             self.reporter.report(ctx.start.line, ctx.start.column, "E_WHILE",
                                 f"Condición de while debe ser boolean, no {cond_t}")
         self.scopes.push("loop")
-        self.check_block_statements(ctx.block().statement(), ctx)
+        self.visit(ctx.block())  # BlockScope dentro del loop
         self.scopes.pop()
         return None
 
 
-
     def visitDoWhileStatement(self, ctx: CompiscriptParser.DoWhileStatementContext):
         self.scopes.push("loop")
-        self.check_block_statements(ctx.block().statement(), ctx)
+        self.visit(ctx.block())  # BlockScope dentro del loop
         self.scopes.pop()
-        cond_t = self.visit(ctx.expression())
+
+        cond_t = self.visit(ctx.expression()) or VOID
         if cond_t != BOOLEAN:
             self.reporter.report(ctx.start.line, ctx.start.column, "E_DOWHILE",
                                 f"Condición de do-while debe ser boolean, no {cond_t}")
@@ -551,7 +590,7 @@ class TypeChecker(CompiscriptVisitor):
             self.visit(ctx.assignment())
 
         if ctx.expression(0):
-            cond_t = self.visit(ctx.expression(0))
+            cond_t = self.visit(ctx.expression(0)) or VOID
             if cond_t != BOOLEAN:
                 self.reporter.report(ctx.start.line, ctx.start.column, "E_FOR",
                                     f"Condición de for debe ser boolean, no {cond_t}")
@@ -559,19 +598,18 @@ class TypeChecker(CompiscriptVisitor):
         if ctx.expression(1):
             self.visit(ctx.expression(1))
 
-        self.check_block_statements(ctx.block().statement(), ctx)
+        self.visit(ctx.block())  # BlockScope dentro del loop
         self.scopes.pop()
         return None
 
-
     def visitForeachStatement(self, ctx: CompiscriptParser.ForeachStatementContext):
-        iter_t = self.visit(ctx.expression())
-        if not iter_t.name.endswith("[]"):
+        iter_t = self.visit(ctx.expression()) or VOID
+        if not isinstance(iter_t, Type) or not iter_t.name.endswith("[]"):
             self.reporter.report(ctx.start.line, ctx.start.column, "E_FOREACH",
                                 f"foreach requiere un arreglo, no {iter_t}")
             elem_t = VOID
         else:
-            elem_t = Type(iter_t.name[:-2])  
+            elem_t = Type(iter_t.name[:-2])
 
         var_name = ctx.Identifier().getText()
         sym = VarSymbol(var_name, elem_t, is_const=False, is_initialized=True,
@@ -579,7 +617,7 @@ class TypeChecker(CompiscriptVisitor):
         self.define_symbol(sym)
 
         self.scopes.push("loop")
-        self.check_block_statements(ctx.block().statement(), ctx)
+        self.visit(ctx.block())  # BlockScope dentro del loop
         self.scopes.pop()
         return None
 
@@ -750,3 +788,25 @@ class TypeChecker(CompiscriptVisitor):
             if stmt.returnStatement() or stmt.breakStatement() or stmt.continueStatement():
                 has_terminated = True
 
+    @contextmanager
+    def _block(self):
+        """Crea un scope de bloque { ... }."""
+        self.scopes.push("block")
+        try:
+            yield
+        finally:
+            self.scopes.pop()
+
+    def visitBlock(self, ctx):
+        with self._block():
+            self.check_block_statements(ctx.statement(), ctx)
+        return VOID
+
+    @contextmanager
+    def _loop(self):
+        """Marca contexto de loop para validar break/continue."""
+        self.scopes.push("loop")
+        try:
+            yield
+        finally:
+            self.scopes.pop()
